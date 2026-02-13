@@ -1,0 +1,104 @@
+import streamlit as st
+import requests
+from streamlit_folium import st_folium
+import folium
+
+# --- [설정] 본인의 API 키를 여기에 입력하세요 ---
+GOOGLE_API_KEY = "YOUR_GOOGLE_MAPS_API_KEY"
+WEATHER_API_KEY = "YOUR_OPENWEATHER_API_KEY"
+
+st.set_page_config(page_title="스마트 트래블 플래너", layout="wide", page_icon="📍")
+
+# 앱 세션 상태 초기화 (도착지 저장용)
+if 'selected_destination' not in st.session_state:
+    st.session_state.selected_destination = None
+
+st.title("📍 지능형 장소 검색 및 가이드")
+
+# 레이아웃 분할
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.subheader("🗺️ 지도를 클릭하거나 장소를 선택하세요")
+    
+    # 초기 지도 설정 (서울 중심)
+    m = folium.Map(location=[37.5665, 126.9780], zoom_start=14)
+    
+    # 지도 클릭 시 좌표 팝업
+    m.add_child(folium.LatLngPopup())
+
+    # 1. 주변 인기 장소(식당 등) 가져오기 (예시로 서울 중심 1km 반경)
+    # 실제로는 지도 중심 좌표에 따라 동적으로 변하게 설정 가능합니다.
+    places_url = f"https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=37.5665,126.9780&radius=1000&type=restaurant&key={GOOGLE_API_KEY}"
+    places_res = requests.get(places_url).json()
+
+    if places_res.get('results'):
+        for place in places_res['results'][:10]:
+            name = place['name']
+            p_lat = place['geometry']['location']['lat']
+            p_lng = place['geometry']['location']['lng']
+            rating = place.get('rating', '평점 없음')
+            
+            # 마커 클릭 시 나타날 팝업창 디자인
+            popup_html = f"""
+                <div style='width:150px'>
+                    <b>{name}</b><br>
+                    평점: ⭐{rating}<br><br>
+                    <small>지도 하단 '정보 확인' 버튼을 눌러 도착지로 설정하세요.</small>
+                </div>
+            """
+            folium.Marker(
+                [p_lat, p_lng], 
+                tooltip=name, 
+                popup=folium.Popup(popup_html, max_width=200),
+                icon=folium.Icon(color='red', icon='cutlery')
+            ).add_to(m)
+
+    # 지도 표시
+    map_data = st_folium(m, width=800, height=500)
+
+# 클릭 데이터 처리
+clicked_lat, clicked_lon = None, None
+if map_data.get("last_object_clicked"):
+    clicked_lat = map_data["last_object_clicked"]["lat"]
+    clicked_lon = map_data["last_object_clicked"]["lng"]
+elif map_data.get("last_clicked"):
+    clicked_lat = map_data["last_clicked"]["lat"]
+    clicked_lon = map_data["last_clicked"]["lng"]
+
+with col2:
+    st.subheader("ℹ️ 장소 상세 정보")
+    
+    if clicked_lat and clicked_lon:
+        # 역지오코딩 (좌표로 주소 찾기)
+        rev_geo_url = f"https://maps.googleapis.com/maps/api/geocode/json?latlng={clicked_lat},{clicked_lon}&key={GOOGLE_API_KEY}&language=ko"
+        rev_res = requests.get(rev_geo_url).json()
+        
+        if rev_res['status'] == 'OK':
+            address = rev_res['results'][0]['formatted_address']
+            st.write(f"🏠 **선택된 주소:**\n{address}")
+            
+            if st.button("🚩 이곳을 도착지로 설정"):
+                st.session_state.selected_destination = {"lat": clicked_lat, "lon": clicked_lon, "address": address}
+
+        # 선택된 목적지가 있을 경우 날씨 및 경로 요약 표시
+        if st.session_state.selected_destination:
+            dest = st.session_state.selected_destination
+            
+            # 날씨 정보
+            w_url = f"https://api.openweathermap.org/data/2.5/weather?lat={dest['lat']}&lon={dest['lon']}&appid={WEATHER_API_KEY}&units=metric&lang=kr"
+            w_res = requests.get(w_url).json()
+            
+            st.markdown("---")
+            st.info(f"✅ **목적지 확정:** {dest['address']}")
+            
+            w_col1, w_col2 = st.columns(2)
+            with w_col1:
+                st.metric("온도", f"{w_res['main']['temp']}°C")
+            with w_col2:
+                st.write(f"기상: {w_res['weather'][0]['description']}")
+            
+            # 이동 팁
+            st.write("🚗 **이동 팁:** 현재 위치에서 해당 지점까지의 최적 경로를 탐색 중입니다...")
+    else:
+        st.write("지도에서 마커(식당 등)를 누르거나 빈 공간을 클릭해 보세요.")
