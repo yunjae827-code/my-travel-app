@@ -22,7 +22,7 @@ st.markdown("""
 
 # --- [함수] 데이터 가져오기 ---
 def get_weather_data(lat, lon, lang_code):
-    api_key = "YOUR_OPENWEATHER_API_KEY" # 여기에 본인 키 입력
+    api_key = "c8d1af88d4fa4db68020fa92400179b6" # 여기에 본인 키 입력
     url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric&lang={lang_code}"
     return requests.get(url).json()
 
@@ -100,4 +100,5 @@ with col_map:
         st.session_state.lat = map_res["last_clicked"]["lat"]
         st.session_state.lon = map_res["last_clicked"]["lng"]
         st.session_state.addr = "선택한 위치" if lang == "한국어" else "Selected point"
+
         st.rerun()
