@@ -5,85 +5,116 @@ import folium
 from streamlit_folium import st_folium
 
 # --- [1] 페이지 및 스타일 설정 ---
-st.set_page_config(page_title="스마트 교통 가이드", layout="wide")
+st.set_page_config(page_title="스마트 통합 가이드", layout="wide")
 
 st.markdown("""
     <style>
     :root { --text-color: inherit; }
     .main .block-container { padding: 0; height: 100vh; overflow: hidden; color: var(--text-color); }
-    .info-panel { padding: 20px; height: 100vh; background-color: rgba(128,128,128,0.05); border-right: 1px solid rgba(128,128,128,0.2); }
+    .info-panel { padding: 20px; height: 100vh; background-color: rgba(128,128,128,0.05); border-right: 1px solid rgba(128,128,128,0.2); overflow-y: auto; }
+    
+    /* 네이버 지도 스타일 상세 리스트 */
+    .route-container { margin-top: 20px; }
+    .route-step { 
+        padding: 12px; border-bottom: 1px solid rgba(128,128,128,0.2); 
+        font-size: 0.9em; line-height: 1.5;
+    }
+    .step-header { color: #00c73c; font-weight: bold; margin-bottom: 5px; }
     .weather-card { 
         background-color: rgba(33, 150, 243, 0.15); 
-        border-radius: 12px; padding: 15px; margin-bottom: 20px; border-left: 6px solid #2196f3; 
+        border-radius: 12px; padding: 15px; margin-bottom: 15px; border-left: 6px solid #2196f3; 
     }
-    /* 지도 및 경로 프레임 최적화 */
-    .map-frame { width: 100%; height: 90vh; border: 0; border-radius: 0; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- [2] 데이터 함수 ---
+# --- [2] 세션 상태 초기화 ---
+if 'start' not in st.session_state:
+    st.session_state.start = {"lat": 37.5665, "lon": 126.9780, "addr": "서울시청"}
+if 'dest' not in st.session_state:
+    st.session_state.dest = {"lat": 37.5547, "lon": 126.9707, "addr": "서울역"}
+if 'steps' not in st.session_state:
+    st.session_state.steps = []
+
+# --- [3] 데이터 함수 ---
 def get_weather(lat, lon):
-    # 본인의 OpenWeather API 키를 입력하세요.
-    api_key = "c8d1af88d4fa4db68020fa92400179b6" 
+    api_key = "c8d1af88d4fa4db68020fa92400179b6" # 실제 키 입력 필요
     url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric&lang=kr"
-    try:
-        res = requests.get(url).json()
-        return res if res.get("main") else None
+    try: return requests.get(url).json()
     except: return None
 
-# --- [3] 세션 상태 초기화 ---
-if 'start_addr' not in st.session_state:
-    st.session_state.start_addr = "내 위치"
-if 'dest_addr' not in st.session_state:
-    st.session_state.dest_addr = "서울역"
-if 'dest_lat_lon' not in st.session_state:
-    st.session_state.dest_lat_lon = (37.5547, 126.9707)
+def fetch_route(s, d):
+    # OSRM 오픈소스 엔진으로 상세 경로 데이터(텍스트 안내 포함) 가져오기
+    url = f"http://router.project-osrm.org/route/v1/driving/{s['lon']},{s['lat']};{d['lon']},{d['lat']}?steps=true&languages=ko"
+    try:
+        res = requests.get(url).json()
+        if res['code'] == 'Ok':
+            return res['routes'][0]['legs'][0]['steps']
+    except: return []
+    return []
 
 # --- [4] 메인 레이아웃 ---
-col_info, col_map = st.columns([1, 3])
+col_info, col_map = st.columns([1.2, 2.8])
 
 with col_info:
-    st.markdown("### 🔍 실시간 경로 검색")
+    st.markdown("### 🔍 경로 및 상세 가이드")
+    s_in = st.text_input("📍 출발 지점", value=st.session_state.start['addr'])
+    d_in = st.text_input("🚩 도착 지점", value=st.session_state.dest['addr'])
     
-    # 상단 고정 입력창
-    s_input = st.text_input("📍 출발지", value=st.session_state.start_addr)
-    d_input = st.text_input("🚩 목적지", value=st.session_state.dest_addr)
-    
-    if st.button("경로 탐색 시작"):
-        geolocator = Nominatim(user_agent="my_travel_v17")
-        loc = geolocator.geocode(d_input)
-        if loc:
-            st.session_state.dest_lat_lon = (loc.latitude, loc.longitude)
-            st.session_state.dest_addr = d_input
-        st.session_state.start_addr = s_input
-        st.rerun()
+    if st.button("실시간 경로 및 날씨 탐색"):
+        geolocator = Nominatim(user_agent="my_travel_v20")
+        ls, ld = geolocator.geocode(s_in), geolocator.geocode(d_in)
+        if ls and ld:
+            st.session_state.start = {"lat": ls.latitude, "lon": ls.longitude, "addr": s_in}
+            st.session_state.dest = {"lat": ld.latitude, "lon": ld.longitude, "addr": d_in}
+            st.session_state.steps = fetch_route(st.session_state.start, st.session_state.dest)
+            st.rerun()
 
-    # 목적지 날씨 카드
-    w = get_weather(st.session_state.dest_lat_lon[0], st.session_state.dest_lat_lon[1])
-    if w:
-        st.markdown(f"""
-            <div class="weather-card">
-                <h4 style="margin:0;">🌤️ {st.session_state.dest_addr} 날씨</h4>
-                <h2 style="margin:5px 0;">{w['main']['temp']}°C</h2>
-                <p style="margin:0;">{w['weather'][0]['description']}</p>
-            </div>
-        """, unsafe_allow_html=True)
+    # 날씨 정보
+    w = get_weather(st.session_state.dest['lat'], st.session_state.dest['lon'])
+    if w and 'main' in w:
+        st.markdown(f"""<div class="weather-card">
+            <h4 style="margin:0;">🌤️ {st.session_state.dest['addr']} 날씨</h4>
+            <h2 style="margin:5px 0;">{w['main']['temp']}°C</h2>
+            <p>{w['weather'][0]['description']}</p>
+        </div>""", unsafe_allow_html=True)
+
+    # [핵심] 상세 경로 리스트 표시
+    if st.session_state.steps:
+        st.markdown("#### 🚇 상세 이동 경로")
+        for i, step in enumerate(st.session_state.steps):
+            dist = step['distance']
+            instr = step['maneuver']['instruction']
+            st.markdown(f"""
+                <div class="route-step">
+                    <div class="step-header">단계 {i+1}</div>
+                    {instr}<br>
+                    <span style="color:gray; font-size:0.8em;">약 {dist:.0f}m 이동</span>
+                </div>
+            """, unsafe_allow_html=True)
 
 with col_map:
-    # [핵심] 다른 창으로 나가지 않고 내 사이트 내부에서 '대중교통 경로 리스트'를 띄우는 URL
-    # hl=ko 파라미터로 지명과 안내를 한국어로 강제합니다.
-    s_param = st.session_state.start_addr.replace(" ", "+")
-    if s_param == "내+위치": s_param = "My+Location"
+    # 한글 지명이 지원되는 지도 (휠 스크롤 즉시 허용)
+    m = folium.Map(
+        location=[st.session_state.dest['lat'], st.session_state.dest['lon']], 
+        zoom_start=14,
+        tiles="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&hl=ko", 
+        attr="Google Maps (Korean)"
+    )
     
-    d_param = f"{st.session_state.dest_lat_lon[0]},{st.session_state.dest_lat_lon[1]}"
+    # 마커 및 경로 선 그리기
+    folium.Marker([st.session_state.start['lat'], st.session_state.start['lon']], icon=folium.Icon(color='blue')).add_to(m)
+    folium.Marker([st.session_state.dest['lat'], st.session_state.dest['lon']], icon=folium.Icon(color='red')).add_to(m)
     
-    # 구글이 차단하지 않는 '실시간 경로 임베드' 주소
-    # 이 주소는 지도와 함께 왼쪽에 '버스 번호, 역 이름, 소요 시간' 리스트를 바로 보여줍니다.
-    embed_url = f"https://www.google.com/maps/embed/v1/directions?key=YOUR_GOOGLE_MAPS_API_KEY&origin={s_param}&destination={d_param}&mode=transit&language=ko"
+    # 지도 클릭 시 좌표 추출 및 버튼 인터랙션
+    map_data = st_folium(m, width="100%", height=850, returned_objects=["last_clicked"])
     
-    # API 키가 없는 경우에도 내 창 안에서 상세 정보를 볼 수 있는 공개용 주소로 대체
-    public_url = f"https://maps.google.com/maps?q={d_param}&output=embed&hl=ko"
-    
-    # 사용자님이 원하시는 '내 창 안에서 교통정보 보기' 구현
-    # 아래 iframe을 통해 사이트를 나가지 않고도 상세 경로를 확인 가능합니다.
-    st.markdown(f'<iframe src="https://maps.google.com/maps?f=d&saddr={s_param}&daddr={d_param}&hl=ko&ie=UTF8&t=m&z=14&layer=t&output=embed"></iframe>', unsafe_allow_html=True)
+    if map_data and map_data.get("last_clicked"):
+        lat, lon = map_data["last_clicked"]["lat"], map_data["last_clicked"]["lng"]
+        st.write(f"📍 선택 지점: {lat:.4f}, {lon:.4f}")
+        c1, c2 = st.columns(2)
+        if c1.button("출발지로"):
+            st.session_state.start = {"lat": lat, "lon": lon, "addr": "지도 선택 지점"}
+            st.rerun()
+        if c2.button("도착지로"):
+            st.session_state.dest = {"lat": lat, "lon": lon, "addr": "지도 선택 지점"}
+            st.rerun()
