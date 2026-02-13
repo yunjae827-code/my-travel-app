@@ -2,33 +2,48 @@ import streamlit as st
 import requests
 from geopy.geocoders import Nominatim
 
-# --- [1] 페이지 설정 ---
-st.set_page_config(page_title="스마트 통합 가이드", layout="centered") # 화면 중앙 배치
+# --- [1] 페이지 및 테마 자동 대응 설정 ---
+st.set_page_config(page_title="스마트 통합 가이드", layout="centered")
 
 st.markdown("""
     <style>
-    /* 전체 배경 및 중앙 정렬 보정 */
-    .stApp { background-color: #f9f9f9; }
-    .main .block-container { padding-top: 5rem; max-width: 600px; }
+    /* 다크/라이트 모드 공통 변수 설정 */
+    :root {
+        --card-bg: rgba(255, 255, 255, 0.1);
+        --text-color: inherit;
+        --accent-color: #2196f3;
+    }
     
-    /* 카드형 디자인 */
+    /* 화면 중앙 집중형 레이아웃 */
+    .main .block-container { max-width: 650px; padding-top: 3rem; }
+    
+    /* 테마에 반응하는 카드 디자인 */
     .content-card {
-        background-color: white;
         padding: 30px;
-        border-radius: 15px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        border-radius: 20px;
+        border: 1px solid rgba(128, 128, 128, 0.2);
+        background-color: var(--card-bg);
         margin-bottom: 20px;
+        backdrop-filter: blur(10px);
     }
     
-    /* 날씨 카드 */
+    /* 날씨 카드 (반투명 스타일로 테마 무관 시인성 확보) */
     .weather-card { 
-        background-color: #e3f2fd; 
-        border-radius: 12px; padding: 20px; border-left: 6px solid #2196f3;
-        margin-top: 20px;
+        background-color: rgba(33, 150, 243, 0.15); 
+        border-radius: 15px; padding: 20px; 
+        border-left: 8px solid var(--accent-color); 
+        margin: 20px 0;
     }
     
-    /* 버튼 가로 정렬 */
-    .stButton > button { width: 100%; border-radius: 8px; height: 3em; }
+    /* 상세 경로 단계 리스트 */
+    .step-item {
+        padding: 15px; border-bottom: 1px solid rgba(128, 128, 128, 0.1); 
+        font-size: 0.95em; line-height: 1.6;
+    }
+    .step-num { color: #00c73c; font-weight: bold; margin-right: 10px; }
+    
+    /* 버튼 스타일 조정 */
+    .stButton > button { width: 100%; border-radius: 8px; height: 3.2em; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -38,44 +53,79 @@ def get_weather(lat, lon):
     url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric&lang=kr"
     try:
         res = requests.get(url).json()
-        if res.get("main"): return res
+        return res if res.get("main") else None
     except: return None
-    return None
 
-# --- [3] 세션 상태 ---
-if 'start_addr' not in st.session_state: st.session_state.start_addr = "출발지"
-if 'dest_addr' not in st.session_state: st.session_state.dest_addr = "목적지"
+def fetch_transit_steps(s_addr, d_addr):
+    geolocator = Nominatim(user_agent="my_travel_v26")
+    try:
+        s_loc, d_loc = geolocator.geocode(s_addr), geolocator.geocode(d_addr)
+        if s_loc and d_loc:
+            url = f"http://router.project-osrm.org/route/v1/driving/{s_loc.longitude},{s_loc.latitude};{d_loc.longitude},{d_loc.latitude}?steps=true&languages=ko"
+            res = requests.get(url).json()
+            if res['code'] == 'Ok':
+                return res['routes'][0]['legs'][0]['steps'], (d_loc.latitude, d_loc.longitude)
+    except: pass
+    return None, None
+
+# --- [3] 메인 UI 레이아웃 (중앙 배치) ---
+st.markdown("<h2 style='text-align: center;'>🚀 스마트 통합 가이드</h2>", unsafe_allow_html=True)
+
+# 세션 상태 초기화 (기본값 설정)
+if 'start' not in st.session_state: st.session_state.start = "출발지"
+if 'dest' not in st.session_state: st.session_state.dest = "목적지"
 if 'coords' not in st.session_state: st.session_state.coords = (37.5547, 126.9707)
-
-# --- [4] 화면 중앙 콘텐츠 ---
-st.markdown("<h2 style='text-align: center;'>🗺️ 스마트 통합 가이드</h2>", unsafe_allow_html=True)
 
 with st.container():
     st.markdown('<div class="content-card">', unsafe_allow_html=True)
     
-    # 입력 필드
-    s_input = st.text_input("📍 출발 지점", value=st.session_state.start_addr)
-    d_input = st.text_input("🚩 도착 지점", value=st.session_state.dest_addr)
+    # 입력창
+    st.session_state.start = st.text_input("📍 출발 지점", value=st.session_state.start)
+    st.session_state.dest = st.text_input("🚩 도착 지점", value=st.session_state.dest)
     
     # 버튼 섹션 (가로 배치)
     col1, col2 = st.columns(2)
-    
     with col1:
-        if st.button("🔄 탐색 및 정보 갱신"):
-            geolocator = Nominatim(user_agent="my_travel_v23")
-            loc = geolocator.geocode(d_input)
-            if loc:
-                st.session_state.coords = (loc.latitude, loc.longitude)
-                st.session_state.dest_addr = d_input
-            st.session_state.start_addr = s_input
-            st.rerun()
-            
+        search_btn = st.button("🔄 탐색 및 정보 갱신")
     with col2:
-        # 구글 지도 보기 버튼 (새 창 열기)
-        map_view_url = f"https://www.google.com/maps/search/{st.session_state.dest_addr.replace(' ', '+')}"
-        st.link_button("🗺️ 지도보기", map_view_url)
+        # 목적지 이름 기반 구글 지도 보기 (새 창)
+        map_url = f"https://www.google.co.kr/maps/search/{st.session_state.dest.replace(' ', '+')}/?hl=ko"
+        st.link_button("🗺️ 지도보기", map_url)
 
-    # 날씨 및 상세 정보 섹션
+    # 데이터 처리 및 결과 표시
+    steps, coords = None, st.session_state.coords
+    if search_btn:
+        steps, new_coords = fetch_transit_steps(st.session_state.start, st.session_state.dest)
+        if new_coords: st.session_state.coords = new_coords
+        st.rerun()
+
+    # 1. 날씨 정보 (버튼 바로 아래 배치)
     w = get_weather(st.session_state.coords[0], st.session_state.coords[1])
     if w:
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown(f"""
+            <div class="weather-card">
+                <h4 style="margin:0;">🌤️ {st.session_state.dest} 날씨</h4>
+                <h2 style="margin:10px 0;">{w['main']['temp']}°C</h2>
+                <p style="margin:0;">{w['weather'][0]['description']} | 습도 {w['main']['humidity']}%</p>
+            </div>
+        """, unsafe_allow_html=True)
+
+    # 2. 상세 경로 가이드 (날씨 아래 고정)
+    st.markdown("### 🚌 상세 이동 경로")
+    # 검색 버튼을 누르지 않았더라도 기본 경로 리스트를 다시 가져옵니다.
+    current_steps, _ = fetch_transit_steps(st.session_state.start, st.session_state.dest)
+    
+    if current_steps:
+        for i, step in enumerate(current_steps):
+            instr = step['maneuver']['instruction']
+            dist = step['distance']
+            st.markdown(f"""
+                <div class="step-item">
+                    <span class="step-num">{i+1}</span> {instr} <br>
+                    <small style="opacity:0.7;">약 {dist:.0f}m 이동</small>
+                </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.info("상단 버튼을 눌러 상세 경로 리스트를 갱신하세요.")
+            
+    st.markdown('</div>', unsafe_allow_html=True)
