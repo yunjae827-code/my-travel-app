@@ -79,3 +79,4 @@ with st.container():
     w = get_weather(st.session_state.coords[0], st.session_state.coords[1])
     if w:
         st.markdown(
+        )
