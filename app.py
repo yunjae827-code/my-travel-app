@@ -110,6 +110,5 @@ with col_map:
                 st.rerun()
         with c2:
             if st.button("🔴 이곳을 도착지로"):
-                st.session_state.dest_loc = {"lat": lat, "lon": lon
+                st.session_state.dest_loc = {"lat": lat, "lon": lon}
     st.markdown(f'<iframe src="{public_embed_url}"></iframe>', unsafe_allow_html=True)
-
