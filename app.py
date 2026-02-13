@@ -78,5 +78,4 @@ with st.container():
     # 날씨 및 상세 정보 섹션
     w = get_weather(st.session_state.coords[0], st.session_state.coords[1])
     if w:
-        st.markdown(
-        )
+        st.markdown('</div>', unsafe_allow_html=True)
